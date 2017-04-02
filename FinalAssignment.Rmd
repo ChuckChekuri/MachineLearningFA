@@ -1,0 +1,194 @@
+---
+title: "Final Assignment"
+author: "Chuck Chekuri"
+date: "3/31/2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE, echo=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret, warn.conflicts = FALSE, quietly = TRUE)
+library(caretEnsemble, warn.conflicts = FALSE, quietly = TRUE)
+library(survival, warn.conflicts = FALSE, quietly = TRUE)
+library(MASS, warn.conflicts = FALSE, quietly = TRUE)
+library(gbm, warn.conflicts = FALSE, quietly = TRUE)
+library(splines, warn.conflicts = FALSE, quietly = TRUE)
+library(plyr, warn.conflicts = FALSE, quietly = TRUE)
+library(randomForest, warn.conflicts = FALSE, quietly = TRUE)
+library(kernlab, warn.conflicts=FALSE, quietly=TRUE)
+```
+
+
+## Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. Human Activity Recording (HAR) has generated a lot of data and many people have analyzed this data for potential applicatons like: elderly monitoring, life log systems for monitoring energy expenditure and for supporting weight-loss programs, and digital assistants for weight lifting exercises. This analysis is part of the Final Assignment for the John Hopkins Datascience Specialization course on Machine learning.
+
+The goal is to predict the how an exercise was done by looking at the data.
+
+### Loading required data from the web
+```{r loaddata, cache=TRUE}
+har_data <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", stringsAsFactors = FALSE, row.names = "X", na.strings = c("NA", "","#DIV/0!"))
+test <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", stringsAsFactors = FALSE, row.names = "X", na.strings = c("NA","","#DIV/0!"))
+```
+
+## Data Processing
+We remove all columns with missing and near zero values as they have very little predictive power. There are a total of `r dim(train)[2]` dimensions and many predictors are missing or have zero values.
+The first 6 columns are also not predictors.
+```{r dimensionReduction, echo=TRUE, cache=TRUE}
+raw_predictors <- har_data[,7:158]
+response <- har_data[,159]
+predictors_nzv <- raw_predictors[ , apply(raw_predictors, 2, 
+				      function(x) !any(is.na(x)))]
+```
+
+Removing predictors with missing values yields `r length(predictors_nzv)` predictors. Let's check for near zero values in the predictros.
+
+```{r NonZero, cache=TRUE}
+nzv <- nearZeroVar(predictors_nzv, saveMetrics = TRUE )
+predictors <- predictors_nzv[c(rownames(nzv[nzv$nzv ==FALSE,])) ]
+```
+Search for Near Zero Values did not reduce any predictors. We still have `r length(predictors_nzv)` predictors.
+
+## Predictions
+We will use the 10 fold cross validaton in the caret package. With 19000 records in the training set a 10 fold  cross validation takes is sufficient. 
+
+We will now build five models and create a random forest ensemble. 
+
+The five types of models are:  
+- Random Forests
+- Linear Discriminant Analysis
+- High Dimension Discriminant Analysis
+- CART
+- Stochastic Gradient Boosting  
+
+#### Building the models
+
+The following code will be used to build the models. The models are stored in the *model* variable and the results from resampling are stored in the *results* variable.  
+
+```{r prediction, echo=FALSE, include=FALSE, cache=TRUE}
+control <- trainControl(method="cv", number=10, classProbs = TRUE, savePredictions = "final", verboseIter = TRUE)
+tgrid = expand.grid(n.trees=150, shrinkage=0.1, interaction.depth = 10, n.minobsinnode =10)
+df <- data.frame(classe=response, predictors)
+```
+```{r m1, echo=FALSE, include=FALSE, cache=TRUE}
+m_rf  <- train(classe~.,data=df, trControl=control, method="rf")
+```
+```{r m2, echo=FALSE, include=FALSE, cache=TRUE}
+m_lda <- train(classe~.,data=df, trControl=control, method="lda")
+```
+```{r m3, echo=FALSE, include=FALSE, cache=TRUE}
+m_hdda <- train(classe~.,data=df, trControl=control, method="hdda")
+#m_knn  <- train(classe~.,data=df, trControl=control, method="knn")
+#m_svm  <- train(classe~.,data=df, trControl=control, method="svmRadial", tunelength=1, metric="Accuracy")
+```
+```{r m4, echo=FALSE, include=FALSE, cache=TRUE}
+m_rpart  <- train(classe~.,data=df, trControl=control, method="rpart", metric="Accuracy", tuneLength=100)
+```
+```{r m5, echo=FALSE, include=FALSE, cache=TRUE}
+m_gbm  <- train(classe~.,data=df, trControl=control, method="gbm", tuneGrid=tgrid, metric="Accuracy");m_gbm
+
+```
+Below is the Accuracy results for the five models.  
+
+```{r m6, echo=FALSE, include=FALSE, cache=TRUE}
+
+models <- list()
+models[[1]] <- m_rf
+models[[2]] <- m_lda
+models[[3]] <- m_hdda
+models[[4]] <- m_rpart
+models[[5]] <- m_gbm
+```
+```{r printresults, echo=FALSE, include=FALSE}
+names(models) <- c("Random Forest","Linear Discriminant Analysis", 
+                   "High Dimension Discriminant Analysis", "CART", 
+                   "Stochasting Gradient Boosting")
+```
+
+> control <- trainControl(method="cv", number=5, classProbs=TRUE)  
+> algorithmList <- c('rf', 'lda', 'hdda', "rpart", 'gbm')  
+> models <- caretList(classe~., data=train_df, trControl=control,    
+>                      methodList=algorithmList)  
+> results <- resamples(models)  
+
+Below is the output of the 5 models 
+
+#### Linear Discriminant Analysis Model   
+```{r m_lda}
+print(m_lda)
+```
+
+#### High Dimension Discriminant Analysis Model 
+```{r m_hdda}
+print(m_hdda)
+```
+
+#### Random Forest  
+```{r m_rf}
+print(m_rf)
+```
+
+#### CART Model    
+```{r m_rpart}
+print(m_rpart)
+```
+
+#### Stochastic Gradient Boosting  
+```{r m_gbm}
+print(m_gbm)
+```
+
+Gradiant Boostig Machine and Random Forests give the most accurate prediction of `r mean(m_gbm$resample$Accuracy)` and `r mean(m_rf$resample$Accuracy)`  respectively as can be seen below table and chart
+
+```{r evaluation, cache=TRUE, include=TRUE}
+results <- resamples(models)
+summary(results)
+dotplot(results)
+```
+
+## Build an ensemble 
+We now create an stacked ensemble of this model to improve on the prediction accuracy. Once agin using repeated cross validation we will build a random forest model for the ensemble.
+```{r ensemble, cache=TRUE, include=TRUE}
+# create a random sample of 100  predictions to build an ensemble  rf model 
+stackSample <- df[sample(1:nrow(df), size=100),]
+s_rf    <- predict(models[[1]], stackSample)
+s_lda   <- predict(models[[2]], stackSample)
+s_hdda  <- predict(models[[3]], stackSample)
+s_rpart <- predict(models[[4]], stackSample)
+s_gbm   <- predict(models[[5]], stackSample)
+# stack using rf
+stackDf <- data.frame(m1=s_rf, m2=s_lda, m3=s_hdda, 
+                      m4=s_rpart, m5=s_gbm, 
+                      classe = stackSample$classe)
+```
+Here is the data from for the predictions from all 5 Models and the building of the ensemble model
+```{r printStackDf}
+head(stackDf)
+rf_fit <- train(classe ~ ., method = "rf", data = stackDf)
+print(rf_fit)
+```
+
+The ensemble model has an accuracy  `r mean(rf_fit$resample$Accuracy)` , which is better than any of the submodels.
+
+
+## Predictions
+```{r final_preds, cache=TRUE, include=TRUE}
+p_rf    <- predict(models[[1]], test)
+p_lda   <- predict(models[[2]], test)
+p_hdda  <- predict(models[[3]], test)
+p_rpart <- predict(models[[4]], test)
+p_gbm   <- predict(models[[5]], test)
+finalSubPreds <- data.frame(m1=p_rf, m2=p_lda, m3=p_hdda, m4=p_rpart, m5=p_gbm)
+finalPredictions <- predict(rf_fit, finalSubPreds)
+finalPredictions
+```
+
+The final predictions for the 20 samples are: `r finalPredictions`
+
+## Conclusion
+The ensemble here may not be necessary but it shows that the ensemble always improves on the individual sub models. 
+
+### References
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. [Read more here](http://groupware.les.inf.puc-rio.br/har#sbia_paper_section#ixzz4cvTsKQLB)
+
